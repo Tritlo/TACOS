@@ -4,15 +4,27 @@ import uuid
 
 import datetime
 import time
+import logging
+import json
 
 # Configuration
 bucket = 'iot-mpg-is' #Make sure you have permissions to Put, Delete and Get.
-path = "nullid/picam-" #The prefix of the pictures.
+path = 'nullid/picam-' #The prefix of the pictures.
 maxb = 75 # The max brightness of the pictures
 period = 60
-topic = "arn:aws:sns:eu-west-1:384599271648:iot-nullid-taco"
+topic = 'arn:aws:sns:eu-west-1:384599271648:iot-nullid-taco'
 
-print("Initializing...")
+logger = logging.getLogger(__name__)
+now = datetime.datetime.now()
+logging.basicConfig(filename='taco-log-{}-{}-{}'.format(now.year,now.month,now.day),
+                    format='%(asctime)s %(message)s',
+                    level=logging.INFO)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+logger.addHandler(ch)
+
+logger.info('Initializing...')
 
 import picamera
 import boto3
@@ -22,24 +34,30 @@ s3 = boto3.client('s3')
 rek = boto3.client('rekognition')
 sns = boto3.client('sns')
 
-print("Initialization done!")
+logger.info('Initialization done!')
+
+def letKnow(type, objname, LabelMap=None):
+  logger.info('{} sighted! Notifying!'.format(type))
+  s3.put_object_acl(ACL='public-read',Bucket=bucket,Key=objname)
+  msg ='TACOS Alert! {} detected in {}! See it at {}. The labels were {}'.format(type,objname, link, json.dumps(LabelMap))
+  sns.publish(TopicArn=topic, Message=msg)
 
 
 while True:
   now = datetime.datetime.now()
   camera.brightness = int(min(maxb,abs((now.hour - 12)/24)*maxb + 50)) #Make it more bright at night
-
-  print("Taking picture...")
-  camera.capture("/tmp/picam.jpg")
+  logger.info(now)
+  logger.info('Taking picture...')
+  camera.capture('/tmp/picam.jpg')
 
   objname = '{}{}.jpg'.format(path, str(uuid.uuid4())[-8:])
 
-  print('Uploading as {}...'.format(objname))
+  logger.info('Uploading as {}...'.format(objname))
 
   s3.upload_file('/tmp/picam.jpg', bucket,objname)
-  print("Done!")
+  logger.info('Done!')
 
-  print("Rekognizing...")
+  logger.info('Rekognizing...')
 
   res = rek.detect_labels(
           Image={
@@ -52,14 +70,16 @@ while True:
   labels = res['Labels']
   lks = map(lambda label: (label['Name'],label['Confidence']), labels)
   LabelMap = dict(lks)
-  print(LabelMap)
+  logger.info(LabelMap)
+  link = 'https://s3-eu-west-1.amazonaws.com/{}/{}'.format(bucket,objname)
   if 'Cat' in LabelMap:
-    print("Kitty sighted! Notifying!")
-    sns.publish(TopicArn=topic, Message="TACOS Alert! Kitty detected in {}".format(objname))
+    letKnow('Kitty',objname)
+  elif 'Animal' in LabelMap and LabelMap['Animal'] > 75:
+    letKnow('Animal',objname, LabelMap)
   else:
-    print("No cat detected... :(")
-    print("Deleting non-kitty picture")
+    logger.info('No cat detected... :(')
+    logger.info('Deleting non-kitty picture')
     s3.delete_object(Bucket=bucket, Key=objname)
-  print("Waiting for {} seconds to try again".format(period)) 
+  logger.info('Waiting for {} seconds to try again'.format(period)) 
   time.sleep(period)
 
