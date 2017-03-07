@@ -41,3 +41,6 @@ Troubleshooting
 + The detection gives me errors
 
   Make sure that boto is able to access your IAM user, and make sure that user has permissions for S3, Rekognition and SNS.
+
+
+If it still doesn't work, open an issue, and I'll be glad to help!
