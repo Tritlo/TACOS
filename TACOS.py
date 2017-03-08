@@ -3,6 +3,7 @@
 import datetime
 import json
 import logging
+import os
 import time
 import uuid
 from io import BytesIO
@@ -16,7 +17,7 @@ maxb = 75  # The max brightness of the pictures
 period = 0.25
 topic = 'arn:aws:sns:eu-west-1:384599271648:iot-nullid-taco'
 threshold = 10  # How much a pixel has to change to be noticed
-sensitivity = 20  # How many changed pixels to count as "motion"
+sensitivity = 20  # How many changed pixels to count as 'motion'
 
 logger = logging.getLogger(__name__)
 now = datetime.datetime.now()
@@ -25,7 +26,10 @@ logging.basicConfig(filename='taco-log-{}-{}-{}'.format(now.year, now.month, now
                     level=logging.INFO)
 
 ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
+if os.getenv('DEBUG','False').lower() == 'true':
+  ch.setLevel(logging.DEBUG)
+else:
+  ch.setLevel(logging.INFO)
 logger.addHandler(ch)
 
 logger.info('Initializing...')
@@ -56,19 +60,15 @@ def captureTestImage():
 # Returns a boolean that says whether the number of pixels that differ more than
 # threshold between pixel access arrays im1 and im2 of width w and height h is
 # greater than sensitivity
-def pixelDiff(im1, im2, w, h, threshold, sensitivity):
+def pixelDiff(im1, im2, w, h, threshold):
   changedPixels = 0
-  diff = False
-  for x in xrange(0, w):
-    for y in xrange(0, h):
-      if not diff:
-        # Just check green channel as it's the highest quality channel
-        pixdiff = abs(im1[x, y][1] - im2[x, y][1])
-        if pixdiff > threshold:
-          changedPixels += 1
-        if changedPixels > sensitivity:
-          diff = true
-  return diff
+  for x in range(w):
+    for y in range(h):
+       # Just check green channel as it's the highest quality channel
+       pixdiff = abs(im1[x, y][1] - im2[x, y][1])
+       if pixdiff > threshold:
+         changedPixels += 1
+  return changedPixels
 
 
 def letKnow(type, objname, LabelMap=None):
@@ -109,29 +109,41 @@ def captureRekognizeSave():
     s3.delete_object(Bucket=bucket, Key=objname)
 
 
-camera.start_preview()
+captureTestImage()
 # Camera warmup time
-sleep(2)
-# Capture first image
+time.sleep(2)
 image1, buffer1 = captureTestImage()
 
-while True:
+def setCameraBrightness():
+  '''Sets the camera brightness depending on the time of day. Returns a Boolean describing whether the brightness changed.'''
   now = datetime.datetime.now()
-  #Make it more bright at night
-  camera.brightness = int(min(maxb, abs((now.hour - 12) / 24) * maxb + 50))
 
-  logger.info(now)
+  oldbrightness = camera.brightness
+  camera.brightness = int(min(maxb, abs((now.hour - 12) / 24) * maxb + 50))
+  return (camera.brightness - oldbrightness) != 0
+
+logger.info('Starting!')
+
+while True:
+  brightnessChanged = setCameraBrightness() # Make it more bright at night
+  if brightnessChanged:
+    # If the brightness changed, the comparison is useless, so we take another one.
+    logger.info('Brightness changed, taking another one!')
+    image1, buffer1 = captureTestImage()
+    time.sleep(period)
 
   # Capture comparison image
-  logger.info('Taking picture for comparison...')
+  logger.debug('Taking picture for comparison...')
   image2, buffer2 = captureTestImage()
 
   # Count changed pixels
-  logger.info('Comparing...')
+  logger.debug('Comparing...')
   delta = pixelDiff(buffer1, buffer2, 100, 75, threshold)
 
+
   # Save an image if pixels changed
-  if delta:
+  if delta > sensitivity:
+    logger.info(now)
     logger.info('Motion detected!')
     captureRekognizeSave()
 
@@ -139,5 +151,5 @@ while True:
   image1 = image2
   buffer1 = buffer2
 
-  logger.info('Waiting for {} seconds to try again'.format(period))
+  logger.debug('Waiting for {} seconds to try again'.format(period))
   time.sleep(period)
