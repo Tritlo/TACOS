@@ -100,9 +100,9 @@ def captureRekognizeSave():
   logger.info(LabelMap)
   link = 'https://s3-eu-west-1.amazonaws.com/{}/{}'.format(bucket, objname)
   if 'Cat' in LabelMap:
-    letKnow('Kitty', objname)
-  elif 'Animal' in LabelMap and LabelMap['Animal'] > 75:
-    letKnow('Animal', objname, LabelMap)
+    letKnow('Kitty',objname)
+  elif 'Animal' in LabelMap and (not ('Pet' in LabelMap) or LabelMap['Pet'] > 75):
+     letKnow('Animal',objname, LabelMap)
   else:
     logger.info('No cat detected... :(')
     logger.info('Deleting non-kitty picture')
