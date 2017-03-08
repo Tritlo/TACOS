@@ -82,6 +82,7 @@ def letKnow(type, objname, LabelMap=None):
 def captureRekognizeSave():
   logger.info('Taking higher resolution picture...')
   camera.capture('/tmp/picam.jpg')
+  os.system('jp2a --width=80 --color --border /tmp/picam.jpg')
 
   objname = '{}{}.jpg'.format(path, str(uuid.uuid4())[-8:])
 
