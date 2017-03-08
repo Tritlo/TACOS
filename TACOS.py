@@ -82,7 +82,7 @@ def letKnow(type, objname, LabelMap=None):
 def captureRekognizeSave():
   logger.info('Taking higher resolution picture...')
   camera.capture('/tmp/picam.jpg')
-  os.system('jp2a --width=80 --color --border /tmp/picam.jpg')
+  os.system('jp2a --width=120 --color --border /tmp/picam.jpg')
 
   objname = '{}{}.jpg'.format(path, str(uuid.uuid4())[-8:])
 
@@ -104,6 +104,8 @@ def captureRekognizeSave():
     letKnow('Kitty',objname)
   elif 'Animal' in LabelMap and (not ('Pet' in LabelMap) or LabelMap['Pet'] > 75):
      letKnow('Animal',objname, LabelMap)
+  elif 'Face' in LabelMap:
+     letKnow('Face',objname, LabelMap)
   else:
     logger.info('No cat detected... :(')
     logger.info('Deleting non-kitty picture')
@@ -126,6 +128,7 @@ def setCameraBrightness():
 logger.info('Starting!')
 
 while True:
+  now = datetime.datetime.now()
   brightnessChanged = setCameraBrightness() # Make it more bright at night
   if brightnessChanged:
     # If the brightness changed, the comparison is useless, so we take another one.
