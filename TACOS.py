@@ -13,11 +13,12 @@ from PIL import Image
 # Configuration
 bucket = 'iot-mpg-is'  #Make sure you have permissions to Put, Delete and Get.
 path = 'nullid/picam-'  #The prefix of the pictures.
-maxb = 75  # The max brightness of the pictures
+maxb = 60  # The max brightness of the pictures
 period = 0.25
 topic = 'arn:aws:sns:eu-west-1:384599271648:iot-nullid-taco'
 threshold = 10  # How much a pixel has to change to be noticed
 sensitivity = 20  # How many changed pixels to count as 'motion'
+rotation = 0 # How much to rotate the camera, one of 0, 90, 180, 270.
 
 logger = logging.getLogger(__name__)
 now = datetime.datetime.now()
@@ -71,11 +72,6 @@ def pixelDiff(im1, im2, w, h, threshold):
   return changedPixels
 
 
-def letKnow(type, objname, LabelMap=None):
-  logger.info('{} sighted! Notifying!'.format(type))
-  s3.put_object_acl(ACL='public-read', Bucket=bucket, Key=objname)
-  msg = 'TACOS Alert! {} detected in {}! See it at {}. The labels were {}'.format(type, objname, link, json.dumps(LabelMap))
-  sns.publish(TopicArn=topic, Message=msg)
 
 
 # Capture higher quality image, run rekognize and save if there is an animal
@@ -100,25 +96,39 @@ def captureRekognizeSave():
   LabelMap = dict(lks)
   logger.info(LabelMap)
   link = 'https://s3-eu-west-1.amazonaws.com/{}/{}'.format(bucket, objname)
+
+
+  def letKnow(type):
+    logger.info('{} sighted! Notifying!'.format(type))
+    s3.put_object_acl(ACL='public-read', Bucket=bucket, Key=objname)
+    msg = 'TACOS Alert! {} detected in {}! See it at {}. The labels were {}'.format(type, objname, link, json.dumps(LabelMap))
+    sns.publish(TopicArn=topic, Message=msg)
+
   if 'Cat' in LabelMap:
-    letKnow('Kitty',objname)
+    letKnow('Kitty')
   elif 'Animal' in LabelMap and (not ('Pet' in LabelMap) or LabelMap['Pet'] > 75):
-     letKnow('Animal',objname, LabelMap)
+     letKnow('Animal')
   elif 'Face' in LabelMap:
-     letKnow('Face',objname, LabelMap)
+     letKnow('Face')
   else:
     logger.info('No cat detected... :(')
     logger.info('Deleting non-kitty picture')
     s3.delete_object(Bucket=bucket, Key=objname)
+  return LabelMap
 
+if rotation:
+  camera.rotation = rotation
 
-captureTestImage()
+camera.brightness = 50
+camera.capture('/tmp/picam.jpg')
 # Camera warmup time
 time.sleep(2)
 image1, buffer1 = captureTestImage()
 
 def setCameraBrightness():
   '''Sets the camera brightness depending on the time of day. Returns a Boolean describing whether the brightness changed.'''
+  return False # Don't worry about brightness for now.
+
   now = datetime.datetime.now()
 
   oldbrightness = camera.brightness
@@ -127,33 +137,62 @@ def setCameraBrightness():
 
 logger.info('Starting!')
 
+def detectAndSetExposure():
+  logger.info('Detecting what exposure to use:')
+  labelMap = captureRekognizeSave()
+  oldmode = camera.exposure_mode
+  mode = None
+  if 'Night' in labelMap:
+    mode = 'night'
+  elif 'Snow' in labelMap:
+    mode = 'snow'
+  else:
+    mode = 'auto'
+  camera.exposure_mode = mode
+  logger.info('Set exposure mode to {}, giving time to adjust...'.format(mode))
+  time.sleep(2)
+  return oldmode == mode
+
+now = datetime.datetime.now()
+lastCheckedExposureMinute = now.minute
+detectAndSetExposure()
+
 while True:
-  now = datetime.datetime.now()
-  brightnessChanged = setCameraBrightness() # Make it more bright at night
-  if brightnessChanged:
-    # If the brightness changed, the comparison is useless, so we take another one.
-    logger.info('Brightness changed, taking another one!')
-    image1, buffer1 = captureTestImage()
+  try:
+    now = datetime.datetime.now()
+    exposureChanged = False
+    if now.minute % 15 == 0 and now.minute != lastCheckedExposureMinute:
+      exposureChanged = detectAndSetExposure()
+      lastCheckedExposureMinute = now.minute
+
+    brightnessChanged = setCameraBrightness() # Make it more bright at night
+    if brightnessChanged or exposureChanged:
+      # If the brightness changed, the comparison is useless, so we take another one.
+      logger.info('Brightness changed to {}, taking another one!'.format(camera.brightness))
+      image1, buffer1 = captureTestImage()
+      time.sleep(period)
+
+    # Capture comparison image
+    logger.debug('Taking picture for comparison...')
+    image2, buffer2 = captureTestImage()
+
+    # Count changed pixels
+    logger.debug('Comparing...')
+    delta = pixelDiff(buffer1, buffer2, 100, 75, threshold)
+
+
+    # Save an image if pixels changed
+    if delta > sensitivity:
+      logger.info(now)
+      logger.info('Motion detected!')
+      captureRekognizeSave()
+
+    # Swap comparison buffers
+    image1 = image2
+    buffer1 = buffer2
+
+    logger.debug('Waiting for {} seconds to try again'.format(period))
     time.sleep(period)
-
-  # Capture comparison image
-  logger.debug('Taking picture for comparison...')
-  image2, buffer2 = captureTestImage()
-
-  # Count changed pixels
-  logger.debug('Comparing...')
-  delta = pixelDiff(buffer1, buffer2, 100, 75, threshold)
-
-
-  # Save an image if pixels changed
-  if delta > sensitivity:
-    logger.info(now)
-    logger.info('Motion detected!')
-    captureRekognizeSave()
-
-  # Swap comparison buffers
-  image1 = image2
-  buffer1 = buffer2
-
-  logger.debug('Waiting for {} seconds to try again'.format(period))
-  time.sleep(period)
+  except Exception as e:
+    logger.info("An exception occurred!") 
+    logger.exception(e)
