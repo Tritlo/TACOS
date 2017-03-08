@@ -19,6 +19,7 @@ topic = 'arn:aws:sns:eu-west-1:384599271648:iot-nullid-taco'
 threshold = 10  # How much a pixel has to change to be noticed
 sensitivity = 20  # How many changed pixels to count as 'motion'
 rotation = 0 # How much to rotate the camera, one of 0, 90, 180, 270.
+interests = ['Cat', 'Animal','Face', 'Person']
 
 logger = logging.getLogger(__name__)
 now = datetime.datetime.now()
@@ -103,16 +104,12 @@ def captureRekognizeSave():
     s3.put_object_acl(ACL='public-read', Bucket=bucket, Key=objname)
     msg = 'TACOS Alert! {} detected in {}! See it at {}. The labels were {}'.format(type, objname, link, json.dumps(LabelMap))
     sns.publish(TopicArn=topic, Message=msg)
-
-  if 'Cat' in LabelMap:
-    letKnow('Kitty')
-  elif 'Animal' in LabelMap and (not ('Pet' in LabelMap) or LabelMap['Pet'] > 75):
-     letKnow('Animal')
-  elif 'Face' in LabelMap:
-     letKnow('Face')
+  interestsInMap = list(filter(lambda x: x in LabelMap, interests))
+  if interestsInMap:
+    letKnow(interestsInMap[0])
   else:
-    logger.info('No cat detected... :(')
-    logger.info('Deleting non-kitty picture')
+    logger.info('Nothing interesting detected... :(')
+    logger.info('Deleting non-interesting picture')
     s3.delete_object(Bucket=bucket, Key=objname)
   return LabelMap
 
