@@ -20,6 +20,8 @@ threshold = 10  # How much a pixel has to change to be noticed
 sensitivity = 20  # How many changed pixels to count as 'motion'
 rotation = 270 # How much to rotate the camera, one of 0, 90, 180, 270.
 interests = ['Cat', 'Animal','Face', 'Person']
+resolution = (1000, 1000)
+
 
 logger = logging.getLogger(__name__)
 now = datetime.datetime.now()
@@ -51,7 +53,7 @@ logger.info('Initialization done!')
 def captureTestImage():
   imageData = BytesIO()
   # what format is appropriate? does it matter?
-  camera.capture(imageData, format='jpeg', resize=(192, 108))
+  camera.capture(imageData, format='jpeg', resize=(100,100))
   imageData.seek(0)
   image = Image.open(imageData)
   pixels = image.load()
@@ -80,13 +82,12 @@ def captureRekognizeSave():
   logger.info('Taking higher resolution picture...')
   camera.capture('/tmp/picam.jpg')
   os.system('jp2a --width=120 --color --border /tmp/picam.jpg')
-  camera.capture('/tmp/picam.png')
 
-  objname = '{}{}.png'.format(path, str(uuid.uuid4())[-8:])
+  objname = '{}{}.jpg'.format(path, str(uuid.uuid4())[-8:])
 
   logger.info('Uploading as {}...'.format(objname))
 
-  s3.upload_file('/tmp/picam.png', bucket, objname)
+  s3.upload_file('/tmp/picam.jpg', bucket, objname)
   logger.info('Done!')
 
   logger.info('Rekognizing...')
@@ -117,7 +118,9 @@ def captureRekognizeSave():
 if rotation:
   camera.rotation = rotation
 
+logger.info("Resolution is set to {}".format(camera.resolution))
 camera.brightness = 50
+camera.resolution = resolution
 camera.capture('/tmp/picam.jpg')
 # Camera warmup time
 time.sleep(2)
@@ -154,6 +157,7 @@ def detectAndSetExposure():
 now = datetime.datetime.now()
 lastCheckedExposureMinute = now.minute
 detectAndSetExposure()
+logger.info("Resolution is set to {}".format(camera.resolution))
 
 while True:
   try:
