@@ -21,6 +21,7 @@ sensitivity = 20  # How many changed pixels to count as 'motion'
 rotation = 270 # How much to rotate the camera, one of 0, 90, 180, 270.
 interests = ['Cat', 'Animal','Face', 'Person']
 resolution = (1000, 1000)
+motion_res = (200, 200)
 
 
 
@@ -56,7 +57,7 @@ logger.info('Initialization done!')
 def captureTestImage():
   imageData = BytesIO()
   # what format is appropriate? does it matter?
-  camera.capture(imageData, format='jpeg', resize=(200,200))
+  camera.capture(imageData, format='jpeg', resize=(motion_res[0],motion_res[1]))
   imageData.seek(0)
   image = Image.open(imageData)
   pixels = image.load()
@@ -197,7 +198,7 @@ while True:
 
     # Count changed pixels
     logger.debug('Comparing...')
-    delta = pixelDiff(buffer1, buffer2, 100, 75, threshold)
+    delta = pixelDiff(buffer1, buffer2, motion_res[0], motion_res[1], threshold)
 
 
     # Save an image if pixels changed
