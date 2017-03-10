@@ -23,6 +23,7 @@ interests = ['Cat', 'Animal','Face', 'Person']
 resolution = (1000, 1000)
 
 
+
 logger = logging.getLogger(__name__)
 now = datetime.datetime.now()
 logging.basicConfig(filename='taco-log-{}-{}-{}'.format(now.year, now.month, now.day),
@@ -40,6 +41,8 @@ logger.info('Initializing...')
 
 import picamera  #isort:skip
 import boto3  #isort:skip
+from twython import Twython
+import auth
 
 camera = picamera.PiCamera()
 s3 = boto3.client('s3')
@@ -53,7 +56,7 @@ logger.info('Initialization done!')
 def captureTestImage():
   imageData = BytesIO()
   # what format is appropriate? does it matter?
-  camera.capture(imageData, format='jpeg', resize=(100,100))
+  camera.capture(imageData, format='jpeg', resize=(200,200))
   imageData.seek(0)
   image = Image.open(imageData)
   pixels = image.load()
@@ -106,6 +109,9 @@ def captureRekognizeSave():
     s3.put_object_acl(ACL='public-read', Bucket=bucket, Key=objname)
     msg = 'TACOS Alert! {} detected in {}! See it at {}. The labels were {}'.format(type, objname, link, json.dumps(LabelMap))
     sns.publish(TopicArn=topic, Message=msg)
+    if type == 'Cat':
+      tweet('TACOS detected a kitty with a confidence of {}! See it at {}.'.format(LabelMap['Cat'], link))
+
   interestsInMap = list(filter(lambda x: x in LabelMap, interests))
   if interestsInMap:
     letKnow(interestsInMap[0])
@@ -153,6 +159,17 @@ def detectAndSetExposure():
   logger.info('Set exposure mode to {}, giving time to adjust...'.format(mode))
   time.sleep(2)
   return oldmode == mode
+
+def tweet(msg):
+  try:
+    return Twython(auth.consumer_key,
+                   auth.consumer_secret,
+                   auth.access_token,
+                   auth.access_token_secret).update_status(status=msg)
+  except Exception as e:
+    logger.exception(e)
+
+
 
 now = datetime.datetime.now()
 lastCheckedExposureMinute = now.minute
