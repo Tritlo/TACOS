@@ -17,7 +17,11 @@ maxb = 60  # The max brightness of the pictures
 period = 0.25
 topic = 'arn:aws:sns:eu-west-1:384599271648:iot-nullid-taco'
 threshold = 10  # How much a pixel has to change to be noticed
-sensitivity = 20  # How many changed pixels to count as 'motion'
+initial_sensitivity = 200  # How many changed pixels to count as 'motion'
+sensitivity_step = 100
+max_sensitivity = 2500
+min_sensitivity = 100
+sensitivity = initial_sensitivity
 rotation = 270 # How much to rotate the camera, one of 0, 90, 180, 270.
 interests = ['Cat', 'Animal','Face', 'Person']
 resolution = (1000, 1000)
@@ -174,8 +178,10 @@ def tweet(msg):
 
 now = datetime.datetime.now()
 lastCheckedExposureMinute = now.minute
+lastSensitivityDrop = now.minute
 detectAndSetExposure()
 logger.info("Resolution is set to {}".format(camera.resolution))
+
 
 while True:
   try:
@@ -184,6 +190,13 @@ while True:
     if now.minute % 15 == 0 and now.minute != lastCheckedExposureMinute:
       exposureChanged = detectAndSetExposure()
       lastCheckedExposureMinute = now.minute
+
+    if now.second % 30 == 0 and now.second != lastSensitivityDrop:
+      logger.info("Periodically lowering sensitivity!")
+      sensitivity -= sensitivity_step
+      sensitivity = max(sensitivity, min_sensitivity)
+      logger.info("Sensitivity is now {}".format(sensitivity))
+      lastSensitivityDrop = now.second
 
     brightnessChanged = setCameraBrightness() # Make it more bright at night
     if brightnessChanged or exposureChanged:
@@ -200,12 +213,17 @@ while True:
     logger.debug('Comparing...')
     delta = pixelDiff(buffer1, buffer2, motion_res[0], motion_res[1], threshold)
 
-
     # Save an image if pixels changed
     if delta > sensitivity:
       logger.info(now)
-      logger.info('Motion detected!')
-      captureRekognizeSave()
+      logger.info('Motion detected! {} pixels changed'.format(delta))
+      LabelMap = captureRekognizeSave()
+      interestsInMap = list(filter(lambda x: x in LabelMap, interests))
+      if not interestsInMap:
+        logger.info("Nothing detected, raising sensitivity!")
+        sensitivity += sensitivity_step
+        sensitivity = min(sensitivity, max_sensitivity)
+        logger.info("Sensitivity is now {}".format(sensitivity))
 
     # Swap comparison buffers
     image1 = image2
