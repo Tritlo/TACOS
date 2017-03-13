@@ -11,28 +11,49 @@ from io import BytesIO
 from PIL import Image
 
 # Configuration
-bucket = 'iot-mpg-is'  #Make sure you have permissions to Put, Delete and Get.
-path = 'nullid/picam-'  #The prefix of the pictures.
-maxb = 60  # The max brightness of the pictures
-period = 0.25
+# The bucket the pictures are uploaded to.
+# Make sure you have permissions to Put, Delete and Get.
+bucket = 'iot-mpg-is'
+# The prefix of the pictures in the bucket.
+path = 'nullid/picam-'
+# The max brightness of the pictures, if brightness is changed based on
+# time of day
+maxb = 60
+# The pictures per second period.
+period = 0.10
+# The SNS topic to send notifications to if anything is detected
 topic = 'arn:aws:sns:eu-west-1:384599271648:iot-nullid-taco'
-threshold = 10  # How much a pixel has to change to be noticed
+# How much a pixel has to change to be noticed
+threshold = 20
+# Whether to enable dynamic sensitivity changes
 dynamicSensitivity = False
-initial_sensitivity = 20  # How many changed pixels to count as 'motion'
-sensitivity_step = 20
-max_sensitivity = 200
-min_sensitivity = 20
+# Configuration for the dynamic senstivity
+initial_sensitivity = 250
+sensitivity_step = 50
+max_sensitivity = 5000
+min_sensitivity = 250
+# How many changed pixels to count as 'motion'
 sensitivity = initial_sensitivity
-rotation = 270 # How much to rotate the camera, one of 0, 90, 180, 270.
+# How much to rotate the camera, one of 0, 90, 180, 270.
+rotation = 270
+# Labels deemed interesting, if any of these are detected, a notification is
+# sent.
 interests = ['Cat', 'Animal','Face', 'Person']
+# The resoulution of the pictures uploaded to S3 and rekognized.
 resolution = (1000, 1000)
+# The resolution used for motion detection. Note: do no set this too high,
+# since we actually want pixels that are close by each other to be unified.
+# A TODO is to use 16x16 macro blocks, and detect change between them, as
+# the per pixel metric is bad for higher resolutions.
 motion_res = (100, 100)
 
 
 
 logger = logging.getLogger(__name__)
 now = datetime.datetime.now()
-logging.basicConfig(filename='taco-log-{}-{}-{}'.format(now.year, now.month, now.day),
+logging.basicConfig(filename='taco-log-{}-{}-{}'.format(now.year,
+                                                        now.month,
+                                                        now.day),
                     format='%(asctime)s %(message)s',
                     level=logging.INFO)
 
@@ -62,7 +83,9 @@ logger.info('Initialization done!')
 def captureTestImage():
   imageData = BytesIO()
   # what format is appropriate? does it matter?
-  camera.capture(imageData, format='jpeg', resize=(motion_res[0],motion_res[1]))
+  camera.capture(imageData,
+                 format='jpeg',
+                 resize=(motion_res[0],motion_res[1]))
   imageData.seek(0)
   image = Image.open(imageData)
   pixels = image.load()
@@ -70,9 +93,8 @@ def captureTestImage():
   return image, pixels
 
 
-# Returns a boolean that says whether the number of pixels that differ more than
-# threshold between pixel access arrays im1 and im2 of width w and height h is
-# greater than sensitivity
+# The number of pixels that differ more than threshold between pixel
+# access arrays im1 and im2 of width w and height h is greater than sensitivity
 def pixelDiff(im1, im2, w, h, threshold):
   changedPixels = 0
   for x in range(w):
@@ -101,7 +123,9 @@ def captureRekognizeSave():
 
   logger.info('Rekognizing...')
 
-  res = rek.detect_labels(Image={'S3Object': {'Bucket': bucket, 'Name': objname}}, MaxLabels=10)
+  res = rek.detect_labels(Image={'S3Object': {'Bucket': bucket,
+                                              'Name': objname}},
+                          MaxLabels=10)
 
   labels = res['Labels']
   lks = map(lambda label: (label['Name'], label['Confidence']), labels)
@@ -113,10 +137,12 @@ def captureRekognizeSave():
   def letKnow(type):
     logger.info('{} sighted! Notifying!'.format(type))
     s3.put_object_acl(ACL='public-read', Bucket=bucket, Key=objname)
-    msg = 'TACOS Alert! {} detected in {}! See it at {}. The labels were {}'.format(type, objname, link, json.dumps(LabelMap))
+    msg = 'TACOS Alert! {} detected in {}! See it at {}. The labels were {}'\
+           .format(type, objname, link, json.dumps(LabelMap))
     sns.publish(TopicArn=topic, Message=msg)
     if type == 'Cat':
-      tweet('TACOS detected a kitty with a confidence of {}! See it at {}.'.format(LabelMap['Cat'], link))
+      tweet('TACOS detected a kitty with a confidence of {}! See it at {}.'\
+            .format(LabelMap['Cat'], link))
 
   interestsInMap = list(filter(lambda x: x in LabelMap, interests))
   if interestsInMap:
@@ -139,7 +165,8 @@ time.sleep(2)
 image1, buffer1 = captureTestImage()
 
 def setCameraBrightness():
-  '''Sets the camera brightness depending on the time of day. Returns a Boolean describing whether the brightness changed.'''
+  '''Sets the camera brightness depending on the time of day.
+  Returns a Boolean describing whether the brightness changed.'''
   return False # Don't worry about brightness for now.
 
   now = datetime.datetime.now()
@@ -162,7 +189,8 @@ def detectAndSetExposure():
   else:
     mode = 'auto'
   camera.exposure_mode = mode
-  logger.info('Set exposure mode to {}, giving time to adjust...'.format(mode))
+  logger.info('Set exposure mode to {}, giving time to adjust...'\
+              .format(mode))
   time.sleep(2)
   return oldmode == mode
 
@@ -192,17 +220,21 @@ while True:
       exposureChanged = detectAndSetExposure()
       lastCheckedExposureMinute = now.minute
 
-    if dynamicSensitivity and now.second % 30 == 0 and now.second != lastSensitivityDrop:
+    if (dynamicSensitivity
+        and now.minute % 5 == 0
+        and now.minute != lastSensitivityDrop):
       logger.info("Periodically lowering sensitivity!")
       sensitivity -= sensitivity_step
       sensitivity = max(sensitivity, min_sensitivity)
       logger.info("Sensitivity is now {}".format(sensitivity))
-      lastSensitivityDrop = now.second
+      lastSensitivityDrop = now.minute
 
     brightnessChanged = setCameraBrightness() # Make it more bright at night
     if brightnessChanged or exposureChanged:
-      # If the brightness changed, the comparison is useless, so we take another one.
-      logger.info('Brightness changed to {}, taking another one!'.format(camera.brightness))
+      # If the brightness changed, the comparison is useless, since most of
+      # the pixels will have changed.
+      logger.info('Brightness changed to {}, taking another one!'\
+                  .format(camera.brightness))
       image1, buffer1 = captureTestImage()
       time.sleep(period)
 
@@ -212,7 +244,8 @@ while True:
 
     # Count changed pixels
     logger.debug('Comparing...')
-    delta = pixelDiff(buffer1, buffer2, motion_res[0], motion_res[1], threshold)
+    delta = pixelDiff(buffer1, buffer2,
+                      motion_res[0], motion_res[1], threshold)
 
     # Save an image if pixels changed
     if delta > sensitivity:
