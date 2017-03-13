@@ -17,15 +17,15 @@ maxb = 60  # The max brightness of the pictures
 period = 0.25
 topic = 'arn:aws:sns:eu-west-1:384599271648:iot-nullid-taco'
 threshold = 10  # How much a pixel has to change to be noticed
-initial_sensitivity = 200  # How many changed pixels to count as 'motion'
-sensitivity_step = 100
-max_sensitivity = 2500
-min_sensitivity = 100
+initial_sensitivity = 20  # How many changed pixels to count as 'motion'
+sensitivity_step = 20
+max_sensitivity = 200
+min_sensitivity = 20
 sensitivity = initial_sensitivity
 rotation = 270 # How much to rotate the camera, one of 0, 90, 180, 270.
 interests = ['Cat', 'Animal','Face', 'Person']
 resolution = (1000, 1000)
-motion_res = (200, 200)
+motion_res = (100, 100)
 
 
 
