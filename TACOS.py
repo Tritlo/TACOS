@@ -21,6 +21,7 @@ initial_sensitivity = 200  # How many changed pixels to count as 'motion'
 sensitivity_step = 100
 max_sensitivity = 2500
 min_sensitivity = 100
+dynamicSensitivity = False
 sensitivity = initial_sensitivity
 rotation = 270 # How much to rotate the camera, one of 0, 90, 180, 270.
 interests = ['Cat', 'Animal','Face', 'Person']
@@ -191,7 +192,7 @@ while True:
       exposureChanged = detectAndSetExposure()
       lastCheckedExposureMinute = now.minute
 
-    if now.second % 30 == 0 and now.second != lastSensitivityDrop:
+    if dynamicSensitivity and now.second % 30 == 0 and now.second != lastSensitivityDrop:
       logger.info("Periodically lowering sensitivity!")
       sensitivity -= sensitivity_step
       sensitivity = max(sensitivity, min_sensitivity)
@@ -219,7 +220,7 @@ while True:
       logger.info('Motion detected! {} pixels changed'.format(delta))
       LabelMap = captureRekognizeSave()
       interestsInMap = list(filter(lambda x: x in LabelMap, interests))
-      if not interestsInMap:
+      if dynamicSensitivity and not interestsInMap:
         logger.info("Nothing detected, raising sensitivity!")
         sensitivity += sensitivity_step
         sensitivity = min(sensitivity, max_sensitivity)
